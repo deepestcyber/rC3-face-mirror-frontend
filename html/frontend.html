@@ -1,0 +1,196 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>tracking.js - face with camera</title>
+  <script src="static/js/facet.js"></script>
+  <script src="static/js/data/face.js"></script>
+  <style>
+    .merge {
+      margin-left: 0;
+      margin-top:  0;
+      position:    absolute;
+    }
+  </style>
+</head>
+<body style="background: #dddddd">
+
+<video id="video" width="320" height="240" preload autoplay loop muted class="merge"></video>
+<canvas id="canvas" width="320" height="240" class="merge"></canvas>
+<canvas id="canvas1" style="margin-left: 500px"></canvas>
+<canvas id="canvas2" width=256, height=256></canvas>
+
+<!--suppress JSCheckFunctionSignatures -->
+<script>
+  function trim(c) {
+    var ctx    = c.getContext('2d'),
+        copy   = document.createElement('canvas').getContext('2d'),
+        pixels = ctx.getImageData(0, 0, c.width, c.height),
+        l      = pixels.data.length,
+        i,
+        bound  = {
+          top:    null,
+          left:   null,
+          right:  null,
+          bottom: null
+        },
+        x, y;
+    for(i = 0; i<l; i += 4) {
+      if(pixels.data[i + 3]!==0) {
+        x = (i / 4) % c.width;
+        y = ~~((i / 4) / c.width);
+        if(bound.top===null) {
+          bound.top = y;
+        }
+        if(bound.left===null) {
+          bound.left = x;
+        } else if(x<bound.left) {
+          bound.left = x;
+        }
+        if(bound.right===null) {
+          bound.right = x;
+        } else if(bound.right<x) {
+          bound.right = x;
+        }
+        if(bound.bottom===null) {
+          bound.bottom = y;
+        } else if(bound.bottom<y) {
+          bound.bottom = y;
+        }
+      }
+    }
+    var trimHeight     = bound.bottom - bound.top,
+        trimWidth      = bound.right - bound.left,
+        trimmed        = ctx.getImageData(bound.left, bound.top, trimWidth, trimHeight);
+    copy.canvas.width  = trimWidth;
+    copy.canvas.height = trimHeight;
+    copy.putImageData(trimmed, 0, 0);
+    // open new window with trimmed image:
+    return copy.canvas;
+}
+
+
+  window.onload = function() {
+    var video    = document.getElementById('video');
+    var canvas   = document.getElementById('canvas');
+    var context  = canvas.getContext('2d');
+    var canvas1  = document.getElementById('canvas1');
+    var canvas2  = document.getElementById('canvas2');
+    var context1 = canvas1.getContext('2d');
+
+    var tracker  = new tracking.ObjectTracker('face');
+    var FPS = 5;
+		var currentFaceRect = null;
+		var wsCanSend = false;
+
+    tracker.setInitialScale(4);
+    tracker.setStepSize(2);
+    tracker.setEdgesDensity(0.1);
+    tracking.track('#video', tracker, {camera: true});
+
+    const WS_URL = 'ws://localhost:8080/inputStream';
+    const ws = new WebSocket(WS_URL);
+    ws.onopen = () => {
+        console.log(`Connected to ${WS_URL}`);
+				wsCanSend = true;
+			}
+
+		ws.onmessage = (event) => {
+			console.log('redraw!')
+
+			var dataUrl = 'data:image;base64,' + event.data;
+			var img = new Image;
+			var context2 = canvas2.getContext('2d');
+
+			img.onload = () => {
+				context2.drawImage(img, 0, 0);
+			}
+
+			img.src = dataUrl;
+
+		}
+
+
+    function captureLoop() {
+      context.clearRect(0, 0, canvas.width, canvas.height);
+			var updateFn = function(rect) {
+				if (!rect) {
+					return
+				}
+
+        context.strokeStyle = '#a64ceb';
+        context.strokeRect(rect.x, rect.y, rect.width, rect.height);
+        context.font      = '11px Helvetica';
+        context.fillStyle = '#fff';
+        context.fillText('x: ' + rect.x + 'px', rect.x + rect.width + 5, rect.y + 11);
+        context.fillText('y: ' + rect.y + 'px', rect.x + rect.width + 5, rect.y + 22);
+        //
+        var c1    = document.createElement('canvas');
+        var ctx1  = c1.getContext('2d');
+        c1.width  = video.width;
+        c1.height = video.height;
+        ctx1.translate(-rect.x, -rect.y);
+        ctx1.drawImage(video, 0, 0, video.width, video.height);
+
+        var c2    = document.createElement('canvas');
+        var ctx2  = c2.getContext('2d');
+        c2.width  = video.width;
+        c2.height = video.height;
+        ctx2.translate(video.width - rect.width, video.height - rect.height);
+        ctx2.drawImage(c1, 0, 0, video.width, video.height);
+
+        var faceCanvas = trim(c2);
+
+        canvas1.width  = 256; //faceCanvas.width;
+        canvas1.height = 256; //faceCanvas.height;
+        context1.drawImage(faceCanvas, 0, 0, canvas1.width, canvas1.height);
+
+				if (wsCanSend) {
+	        ws.send(canvas1.toDataURL());
+				}
+      }
+
+      updateFn(currentFaceRect);
+    }
+
+    tracker.on('track', function(event) {
+      // XXX: there might be more than one rectangle in
+      // event.data, why?
+
+      var newRect = event.data[0];
+
+      // we update only if the new rectangle is located at least
+      // these many pixels different to the previous one.
+      var threshold = 50;
+
+      if (!newRect) {
+        return;
+      }
+
+      if (
+        currentFaceRect === null ||
+        Math.abs(currentFaceRect.x - newRect.x) > threshold ||
+        Math.abs(currentFaceRect.y - newRect.y) > threshold
+        ) {
+          console.log(newRect);
+          currentFaceRect = newRect;
+
+          // grow the rectangle a bit so that we get more of
+          // a safety margin around the detected face.
+          var growth = 0.33;
+          currentFaceRect.x *= 1 - growth;
+          currentFaceRect.y *= 1 - growth;
+          currentFaceRect.width *= 1 + growth;
+          currentFaceRect.height *= 1 + growth;
+      }
+    });
+
+    setInterval(captureLoop, 1000 / FPS);
+
+  };
+</script>
+
+</body>
+</html>
+
+<!-- vim:shiftwidth=2 tabstop=2 expandtabs -->
