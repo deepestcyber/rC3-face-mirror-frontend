@@ -88,7 +88,11 @@
     tracker.setEdgesDensity(0.1);
     tracking.track('#video', tracker, {camera: true});
 
-    const WS_URL = 'ws://localhost:8080/inputStream';
+    var proto = "ws://";
+    if (window.location.protocol == "https:") {
+      proto = "wss://";
+    }
+    const WS_URL = proto + window.location.host + '/inputStream'
     const ws = new WebSocket(WS_URL);
     ws.onopen = () => {
         console.log(`Connected to ${WS_URL}`);
