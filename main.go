@@ -2,39 +2,109 @@ package main
 
 import (
 	"crypto/subtle"
+	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/gorilla/websocket"
 	"log"
+	"math/rand"
 	"net/http"
 	"sync"
+	"time"
 )
 
-type ComputeHandlers struct {
-	Handlers []*ComputeHandler
-	lock     sync.RWMutex
+type Pool struct {
+	pool map[string]struct{}
+	lock sync.Mutex
 }
 
-func (c *ComputeHandlers) Add(name string, conn *websocket.Conn) {
-	handler := &ComputeHandler{name, conn}
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	c.Handlers = append(c.Handlers, handler)
+func (p *Pool) Put(id string) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+	p.pool[id] = struct{}{}
 }
 
-func (c *ComputeHandlers) RemoveByIndex(i int) {
-	if len(c.Handlers) <= i {
-		return
+// Select an id from the pool, preferring the
+// ones inserted first but randomly skipping
+// (50% chance of skip)
+func (p *Pool) Get() (id string) {
+	p.lock.Lock()
+	defer p.lock.Unlock()
+
+	if len(p.pool) == 0 {
+		return ""
 	}
 
-	c.lock.Lock()
-	defer c.lock.Unlock()
-	c.Handlers = append(c.Handlers[:i], c.Handlers[i+1:]...)
+	for id = range p.pool {
+		if rand.Intn(2) == 1 {
+			continue
+		}
+	}
+
+	delete(p.pool, id)
+	return
 }
 
-func (c *ComputeHandlers) GetByIndex(i int) *ComputeHandler {
+type ComputeHandlers struct {
+	handlers map[string]*ComputeHandler
+	lock     sync.RWMutex
+	pool     Pool // pool of available handler ids
+}
+
+func (c *ComputeHandlers) Add(name string, conn *websocket.Conn) string {
+	id := fmt.Sprintf("%s%d", name, time.Now().UnixNano())
+
+	handler := &ComputeHandler{name, conn}
+
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	c.handlers[id] = handler
+	c.pool.Put(id)
+
+	return id
+}
+
+// the pool might include ids of nodes which have disconnected/errored
+// so we need to make sure that the handler is still registered with
+// us and may try to get another one.
+func (c *ComputeHandlers) Get() (string, *ComputeHandler) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
-	return c.Handlers[i]
+
+	for {
+		id := c.pool.Get()
+		if id == "" {
+			log.Println("no id in pool :(")
+			return "", nil
+		}
+
+		handler, ok := c.handlers[id]
+
+		if !ok {
+			continue
+		}
+
+		log.Println("A worker acquired worked", id)
+		return id, handler
+	}
+}
+
+// Mark the handler as free again to be used by others.
+func (c *ComputeHandlers) Free(id string) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	if _, ok := c.handlers[id]; ok {
+		log.Println("Marked", id, "as free again")
+		c.pool.Put(id)
+	}
+}
+
+func (c *ComputeHandlers) RemoveById(id string) {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	log.Println("Worker", id, "was removed")
+	delete(c.handlers, id)
 }
 
 type ComputeHandler struct {
@@ -47,7 +117,6 @@ var computeHandlers *ComputeHandlers
 // FIXME load from config
 const TOKEN = "supersecretsauce"
 
-
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "html/frontend.html")
 }
@@ -55,6 +124,15 @@ func indexHandler(w http.ResponseWriter, r *http.Request) {
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+}
+
+func resetWorker(handler *ComputeHandler) {
+	log.Println("sending reset to", handler.Name)
+	handler.Conn.WriteMessage(websocket.TextMessage, []byte("reset"))
+}
+
+func noWorkersHandler(w http.ResponseWriter) {
+	http.Error(w, "No workers available", 501)
 }
 
 func inputStreamHandler(w http.ResponseWriter, r *http.Request) {
@@ -66,28 +144,51 @@ func inputStreamHandler(w http.ResponseWriter, r *http.Request) {
 
 	defer conn.Close()
 
+	handlerId, handler := computeHandlers.Get()
+
+	if handler == nil {
+		log.Println("had to reject a client; no workers available")
+		noWorkersHandler(w)
+		return
+	}
+
+	defer computeHandlers.Free(handlerId)
+
+	// in every case reset the worker when we are done here.
+	defer resetWorker(handler)
+
 	for {
+		t0 := time.Now()
+		tClientReceiveA := t0
+
 		messageType, p, err := conn.ReadMessage()
 		if err != nil {
 			log.Println(err)
 			return
 		}
 
+		tClientReceiveB := time.Since(tClientReceiveA)
+
 		if messageType != websocket.TextMessage {
 			log.Println("Invalid message type")
 			return
 		}
 
-		//log.Println(messageType, p)
-		handler := computeHandlers.GetByIndex(0)
+		tHandlerSendA := time.Now()
 		handler.Conn.WriteMessage(websocket.BinaryMessage, p)
-		_, p, err = handler.Conn.ReadMessage()
+		tHandlerSendB := time.Since(tHandlerSendA)
 
+		tHandlerReceivedA := time.Now()
+		_, p, err = handler.Conn.ReadMessage()
 		if err != nil {
 			log.Println("Compute handler failed:", err)
-			computeHandlers.RemoveByIndex(0)
+			computeHandlers.RemoveById(handlerId)
 			return
 		}
+
+		tHandlerReceivedB := time.Since(tHandlerReceivedA)
+
+		tClientSendA := time.Now()
 
 		//log.Println("received answer from compute node; relaying")
 		err = conn.WriteMessage(websocket.TextMessage, p)
@@ -96,6 +197,15 @@ func inputStreamHandler(w http.ResponseWriter, r *http.Request) {
 			log.Println(err)
 			return
 		}
+
+		tClientSendB := time.Since(tClientSendA)
+		tTotal := time.Since(t0)
+
+		log.Println("Total took", tTotal)
+		log.Println("Client receive took", tClientReceiveB)
+		log.Println("Write to computation took", tHandlerSendB)
+		log.Println("Computation took", tHandlerReceivedB)
+		log.Println("Client write took", tClientSendB)
 	}
 }
 
@@ -131,12 +241,16 @@ func registerComputeHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	computeHandlers.Add(vars["name"], conn)
+	id := computeHandlers.Add(vars["name"], conn)
+	log.Println("registerComputeHandler: id is", id)
 }
 
 func main() {
 	computeHandlers = &ComputeHandlers{
-		Handlers: make([]*ComputeHandler, 0),
+		handlers: make(map[string]*ComputeHandler),
+		pool: Pool{
+			pool: make(map[string]struct{}),
+		},
 	}
 
 	router := mux.NewRouter()
