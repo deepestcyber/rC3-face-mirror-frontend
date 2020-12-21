@@ -98,7 +98,7 @@
 		ws.onmessage = (event) => {
 			console.log('redraw!')
 
-			var dataUrl = 'data:image;base64,' + event.data;
+			var dataUrl = 'data:image/jpeg;base64,' + event.data;
 			var img = new Image;
 			var context2 = canvas2.getContext('2d');
 
