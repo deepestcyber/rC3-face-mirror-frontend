@@ -18,7 +18,12 @@
 <video id="video" width="320" height="240" preload autoplay loop muted class="merge"></video>
 <canvas id="canvas" width="320" height="240" class="merge"></canvas>
 <canvas id="canvas1" style="margin-left: 500px"></canvas>
-<canvas id="canvas2" width=256, height=256></canvas>
+<br/>
+
+<div>
+<img src="static/mlisa.jpg" style="width: 490px;"/>
+<canvas id="canvas2" width=256, height=256 style="position: relative; left: -382px; top:-435px;"></canvas>
+</div>
 
 <!--suppress JSCheckFunctionSignatures -->
 <script>
@@ -152,6 +157,8 @@
 				if (wsCanSend) {
 	        ws.send(canvas1.toDataURL());
 				}
+
+
       }
 
       updateFn(currentFaceRect);
