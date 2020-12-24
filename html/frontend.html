@@ -182,6 +182,15 @@
         Math.abs(currentFaceRect.x - newRect.x) > threshold ||
         Math.abs(currentFaceRect.y - newRect.y) > threshold
         ) {
+          if (
+            currentFaceRect.width > newRect.width ||
+            currentFaceRect.height > newRect.height
+          ) {
+            // avoid making the rectangle smaller to prevent
+            // "zoom in" effect.
+            return;
+          }
+
           console.log(newRect);
           currentFaceRect = newRect;
 
