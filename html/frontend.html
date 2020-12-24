@@ -116,7 +116,6 @@
 			}
 
 			img.src = dataUrl;
-
 		}
 
 
@@ -188,8 +187,8 @@
 
           // grow the rectangle a bit so that we get more of
           // a safety margin around the detected face.
-          var growth = 0.33;
-          currentFaceRect.x *= 1 - growth;
+          var growth = 0.75;
+          currentFaceRect.x *= 1 - growth/2;
           currentFaceRect.y *= 1 - growth;
           currentFaceRect.width *= 1 + growth;
           currentFaceRect.height *= 1 + growth;
@@ -204,4 +203,6 @@
 </body>
 </html>
 
-<!-- vim:shiftwidth=2 tabstop=2 expandtabs -->
+<!--
+vim:shiftwidth=2 tabstop=2 expandtab
+-->
