@@ -183,8 +183,9 @@
         Math.abs(currentFaceRect.y - newRect.y) > threshold
         ) {
           if (
+            currentFaceRect != null && (
             currentFaceRect.width > newRect.width ||
-            currentFaceRect.height > newRect.height
+            currentFaceRect.height > newRect.height)
           ) {
             // avoid making the rectangle smaller to prevent
             // "zoom in" effect.
@@ -198,7 +199,7 @@
           // a safety margin around the detected face.
           var growth = 0.75;
           currentFaceRect.x *= 1 - growth/2;
-          currentFaceRect.y *= 1 - growth;
+          currentFaceRect.y *= 1 - growth/2;
           currentFaceRect.width *= 1 + growth;
           currentFaceRect.height *= 1 + growth;
       }
