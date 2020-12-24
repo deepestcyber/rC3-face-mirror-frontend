@@ -135,6 +135,8 @@ func noWorkersHandler(w http.ResponseWriter) {
 	http.Error(w, "No workers available", 501)
 }
 
+const CLIENT_TIMEOUT = 5 * time.Second
+
 func inputStreamHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -157,6 +159,14 @@ func inputStreamHandler(w http.ResponseWriter, r *http.Request) {
 	// in every case reset the worker when we are done here.
 	defer resetWorker(handler)
 
+	// the client websocket can basically lock the connection
+	// for an infinite amount of time. make sure that it does
+	// not by having a timer that is reset after each receive
+	clientTimer := time.AfterFunc(CLIENT_TIMEOUT, func() {
+		log.Println("Closing client connection due to timeout.")
+		conn.Close()
+	})
+
 	for {
 		t0 := time.Now()
 		tClientReceiveA := t0
@@ -166,6 +176,8 @@ func inputStreamHandler(w http.ResponseWriter, r *http.Request) {
 			log.Println(err)
 			return
 		}
+
+		clientTimer.Reset(CLIENT_TIMEOUT)
 
 		tClientReceiveB := time.Since(tClientReceiveA)
 
