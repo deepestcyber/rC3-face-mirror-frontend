@@ -132,6 +132,8 @@
         context.fillStyle = '#fff';
         context.fillText('x: ' + rect.x + 'px', rect.x + rect.width + 5, rect.y + 11);
         context.fillText('y: ' + rect.y + 'px', rect.x + rect.width + 5, rect.y + 22);
+        context.fillText('w: ' + rect.width + 'px', rect.x + rect.width + 5, rect.y + 33);
+        context.fillText('h: ' + rect.height + 'px', rect.x + rect.width + 5, rect.y + 44);
         //
         var c1    = document.createElement('canvas');
         var ctx1  = c1.getContext('2d');
@@ -202,6 +204,12 @@
           currentFaceRect.y *= 1 - growth/2;
           currentFaceRect.width *= 1 + growth;
           currentFaceRect.height *= 1 + growth;
+
+          // make sure the face rect does not exceed video boundaries (clip)
+          // and the resulting rectangle is square.
+          currentFaceRect.height = min(currentFaceRect.height, video.height);
+          currentFaceRect.width = currentFaceRect.height;
+
       }
     });
 
