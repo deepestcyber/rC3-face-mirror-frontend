@@ -117,13 +117,15 @@ var computeHandlers *ComputeHandlers
 // FIXME load from config
 const TOKEN = "supersecretsauce"
 
-func indexHandler(w http.ResponseWriter, r *http.Request) {
-	http.ServeFile(w, r, "html/frontend.html")
-}
-
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+}
+
+const CLIENT_TIMEOUT = 5 * time.Second
+
+func indexHandler(w http.ResponseWriter, r *http.Request) {
+	http.ServeFile(w, r, "html/frontend.html")
 }
 
 func resetWorker(handler *ComputeHandler) {
@@ -134,8 +136,6 @@ func resetWorker(handler *ComputeHandler) {
 func noWorkersHandler(w http.ResponseWriter) {
 	http.Error(w, "No workers available", 501)
 }
-
-const CLIENT_TIMEOUT = 5 * time.Second
 
 func inputStreamHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
@@ -166,6 +166,8 @@ func inputStreamHandler(w http.ResponseWriter, r *http.Request) {
 		log.Println("Closing client connection due to timeout.")
 		conn.Close()
 	})
+
+	defer clientTimer.Stop()
 
 	for {
 		t0 := time.Now()
