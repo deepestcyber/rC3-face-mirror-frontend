@@ -89,10 +89,27 @@
     copy.putImageData(trimmed, 0, 0);
     // open new window with trimmed image:
     return copy.canvas;
-}
+  }
+
+  function patchTrackingJs() {
+      // Overwrite user media initialization to limit frame rate.
+      tracking.initUserMedia_ = function(element, opt_options) {
+        window.navigator.mediaDevices.getUserMedia({
+          video: { frameRate: { max: 5 } },
+          audio: (opt_options && opt_options.audio) ? true : false,
+        }).then(function(stream) {
+          element.srcObject = stream;
+        }).catch(function(err) {
+          throw Error('Cannot capture user camera.');
+        });
+      };
+  }
 
 
   window.onload = function() {
+    patchTrackingJs();
+
+
     var video    = document.getElementById('video');
     var canvas   = document.getElementById('canvas');
     var context  = canvas.getContext('2d');
