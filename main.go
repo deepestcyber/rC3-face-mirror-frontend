@@ -122,7 +122,7 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
-const CLIENT_TIMEOUT = 5 * time.Second
+const CLIENT_TIMEOUT = 10 * time.Second
 
 func indexHandler(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, "html/frontend.html")
